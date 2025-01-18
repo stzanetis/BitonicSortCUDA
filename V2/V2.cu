@@ -2,8 +2,6 @@
 #include <cuda_runtime.h>
 #include <chrono>
 #include "../Utilities/utilities.h"
-#include <cstdlib>
-#include <ctime>
 
 __global__ void bitonicSortStep(int *dev_values, int threads, int stage, int step) {
     unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x;
@@ -30,32 +28,42 @@ __global__ void bitonicSortStep(int *dev_values, int threads, int stage, int ste
 }
 
 __global__ void localSort(int *dev_values, int N, int stage, int step) {
+    extern __shared__ int shared_values[];
     unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x;
+    unsigned int local_tid = threadIdx.x;
     unsigned int offset = N >> 1;
 
-    if (tid < (N >> 1)) {
+    shared_values[local_tid] = dev_values[tid];
+    shared_values[local_tid + min(offset, blockDim.x)] = dev_values[tid + offset];
+    __syncthreads();
+
+    if (tid < offset) {
         do {
             while (step > 0) {
                 unsigned int partner = tid ^ step;
-                if (partner > tid) {
-                    bool minmax = (tid & stage) == 0;
-                    if (minmax ? dev_values[tid] > dev_values[partner] : dev_values[tid] < dev_values[partner]) {
-                        int temp = dev_values[tid];
-                        dev_values[tid] = dev_values[partner];
-                        dev_values[partner] = temp;
+                unsigned int local_partner = partner - blockIdx.x * blockDim.x;
+                
+                if (partner > tid) {                    
+                    if((tid & stage) == 0 ? shared_values[local_tid] > shared_values[local_partner] : shared_values[local_tid] < shared_values[local_partner]) {
+                        int temp = shared_values[local_tid];
+                        shared_values[local_tid] = shared_values[local_partner];
+                        shared_values[local_partner] = temp;
                     }
+
                 } else {
                     tid += offset;
                     partner += offset;
+                    local_tid += min(offset, blockDim.x);
+                    local_partner += min(offset, blockDim.x);
 
-                    bool minmax = (tid & stage) == 0;
-                    if (minmax ? dev_values[tid] < dev_values[partner] : dev_values[tid] > dev_values[partner]) {
-                        int temp = dev_values[tid];
-                        dev_values[tid] = dev_values[partner];
-                        dev_values[partner] = temp;
+                    if((tid & stage) == 0 ? shared_values[local_tid] < shared_values[local_partner] : shared_values[local_tid] > shared_values[local_partner]) {
+                        int temp = shared_values[local_tid];
+                        shared_values[local_tid] = shared_values[local_partner];
+                        shared_values[local_partner] = temp;
                     }
 
                     tid -= offset;
+                    local_tid -= min(offset, blockDim.x);
                 }
                 step >>= 1;
                 __syncthreads();
@@ -64,6 +72,9 @@ __global__ void localSort(int *dev_values, int N, int stage, int step) {
             step = stage >> 1;
         } while (stage <= min(N, 1 << 10));
     }
+    dev_values[tid] = shared_values[local_tid];
+    dev_values[tid + offset] = shared_values[local_tid + min(offset, blockDim.x)];
+    __syncthreads();
 }
 
 void bitonicSort(int *values, int N) {
@@ -76,14 +87,14 @@ void bitonicSort(int *values, int N) {
     cudaMalloc((void**)&dev_values, size);
     cudaMemcpy(dev_values, values, size, cudaMemcpyHostToDevice);
 
-    localSort<<<blocks, threadsPerBlock>>>(dev_values, N, 2, 1);
+    localSort<<<blocks, threadsPerBlock, 2 * threadsPerBlock * sizeof(int)>>>(dev_values, N, 2, 1);
 
     for (int stage = 2048; stage <= N; stage <<= 1) {
         for (int step = stage >> 1; step > 512; step >>= 1) {
-            bitonicSortStep<<<blocks, threadsPerBlock>>>(dev_values, threads, stage, step);
+            bitonicSortStep<<<blocks, threadsPerBlock, threadsPerBlock * sizeof(int)>>>(dev_values, threads, stage, step);
             cudaDeviceSynchronize();
         }
-        localSort<<<blocks, threadsPerBlock>>>(dev_values, N, stage, 512);
+        localSort<<<blocks, threadsPerBlock, 2 * threadsPerBlock * sizeof(int)>>>(dev_values, N, stage, 512);
     }    
 
     cudaMemcpy(values, dev_values, size, cudaMemcpyDeviceToHost);
@@ -123,7 +134,7 @@ int main(int argc, char *argv[]) {
     }
 
     std::chrono::duration<double> duration = end - start;
-    std::cout << "V1 Bitonic sort took " << duration.count() << " seconds." << std::endl;
+    std::cout << "V2 Bitonic sort took " << duration.count() << " seconds." << std::endl;
 
     delete[] values;
     return 0;

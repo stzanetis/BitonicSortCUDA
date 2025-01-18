@@ -1,6 +1,7 @@
-#include "utilities.cuh"
+#include "utilities.h"
 #include <cstdlib>
 #include <ctime>
+#include <iostream>
 
 // Check if the array is sorted
 bool isSorted(int *values, int N) {
@@ -19,4 +20,12 @@ void generateArray(int *values, int N) {
     for (int i = 0; i < N; i++) {
         values[i] = std::rand() % 100; // 0 - 99
     }
+}
+
+// Print the array
+void printArray(int *values, int N) {
+    for (int i = 0; i < N; i++) {
+        std::cout << values[i] << " ";
+    }
+    std::cout << std::endl;
 }

@@ -1,24 +1,24 @@
-NVCC := $(CUDA_PATH)/bin/nvcc
+NVCC = nvcc
 
-TARGET := V1.exe
+UTILS_DIR = ../Utilities
+UTILS = $(UTILS_DIR)/utilities.cpp
+TARGET = V1.exe
 SRC := V1.cu
-CU_SRC := $(SRC:.cu=.o)
-CPP_SRC := utilities.cpp
-OBJ := $(CU_SRC:.cu=.o) $(CPP_SRC:.cpp=.o)
+OBJ := utilities.o
 
 all: $(TARGET)
 
 $(TARGET): $(OBJ)
-	$(NVCC) -o $@ $^
+	$(NVCC) -I$(UTILS_DIR) $^ -o $@
 
-%.o: %.cu
-    $(NVCC) -c $< -o $@
+$(OBJ): $(SRC)
+	$(NVCC) -I$(UTILS_DIR) -c $< -o $@
 
-%.o: %.cpp
-    $(CXX) -c $< -o $@
+V1.o: $(UTILS)
+	$(NVCC) -I$(UTILS_DIR) -c $< -o $@
 
 clean:
 	rm -f $(OBJ) $(TARGET)
 
 run: $(TARGET)
-	./$(TARGET)
+	./$(TARGET) 20 7

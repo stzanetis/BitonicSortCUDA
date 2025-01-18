@@ -1,7 +1,7 @@
 #include <iostream>
 #include <cuda_runtime.h>
 #include <chrono>
-#include "../Utilities/utilities.cuh"
+#include "../Utilities/utilities.h"
 
 __global__ void bitonicSortStep(int *dev_values, int stage, int step) {
     unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x;
@@ -61,9 +61,15 @@ int main(int argc, char *argv[]) {
 
     generateArray(values, N);
 
+    //printf("Unsorted array: ");
+    //printArray(values, N);
+
     auto start = std::chrono::high_resolution_clock::now();
     bitonicSort(values, N);
     auto end = std::chrono::high_resolution_clock::now();
+
+    //printf("Sorted array: ");
+    //printArray(values, N);
 
     if (isSorted(values, N)) {
         std::cout << "The array is sorted correctly." << std::endl;
