@@ -18,7 +18,7 @@ void generateArray(int *values, int N) {
     std::srand(std::time(0));
 
     for (int i = 0; i < N; i++) {
-        values[i] = std::rand() % 100; // 0 - 99
+        values[i] = std::rand() % 1000; // 0 - 999
     }
 }
 

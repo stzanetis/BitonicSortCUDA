@@ -46,18 +46,16 @@ void bitonicSort(int *values, int N) {
 }
 
 int main(int argc, char *argv[]) {
-    int q, p;
+    int N;
     if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " {q} {p}" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <n>" << std::endl;
         return 1;
     } else {
-        p = std::atoi(argv[1]);
-        q = std::atoi(argv[2]);
+        N = 1 << (std::atoi(argv[1]));
     }
 
-    int N = 1 << (q + p);   // N = 2^(q + p)
     int *values = new int[N];
-    std::cout << "Number of elements: " << N << std::endl;
+    std::cout << "Number of elements to be sorted: " << N << std::endl;
 
     generateArray(values, N);
 
