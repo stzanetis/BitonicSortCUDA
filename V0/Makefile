@@ -4,21 +4,25 @@ UTILS_DIR = ../Utilities
 UTILS = $(UTILS_DIR)/utilities.cpp
 TARGET = V0.exe
 SRC := V0.cu
-OBJ := utilities.o
+OBJS := utilities.obj V0.obj
 
 all: $(TARGET)
 
-$(TARGET): $(OBJ)
-	$(NVCC) -I$(UTILS_DIR) $^ -o $@
+$(TARGET): $(OBJS)
+	$(NVCC) $(OBJS) -o $@
 
-$(OBJ): $(SRC)
+utilities.obj: $(UTILS)
 	$(NVCC) -I$(UTILS_DIR) -c $< -o $@
 
-V0.o: $(UTILS)
+V0.obj: $(SRC)
 	$(NVCC) -I$(UTILS_DIR) -c $< -o $@
 
 clean:
-	rm -f $(OBJ) $(TARGET)
+ifeq ($(OS),Windows_NT)
+	del /Q $(OBJS) $(TARGET) *.exp *.lib
+else
+	rm -f $(OBJS) $(TARGET) *.exp *.lib
+endif
 
 run: $(TARGET)
-	./$(TARGET) 20 7
+	./$(TARGET) 27

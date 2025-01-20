@@ -48,6 +48,7 @@ This report is part of an assignment for the \textbf{Parallel and Distributed Sy
 Aristotle University's Electrical and Computer Engineering department. 
 
 This project implements \textit{distributed sorting} using the \textbf{Bitonic Sort} algorithm with the use of the \textbf{CUDA} platform. The primary objective is to sort a dataset of $N = 2^q$ numbers (where $q \in N$). The implementation employs parallel processing to achieve efficient sorting, making it suitable for large-scale data sets.\\ \\
+The code for this project is available at this \textcolor{blue}{\href{https://github.com/stzanetis/BitonicSortCUDA}{GitHub repository}} page.
 
 \chapter{Serial Bitonic}
     To grasp the concept of distributed \textbf{Bitonic Sort}, it is essential to first understand its serial implementation. This foundational knowledge will provide the necessary context for comprehending the distributed version of the algorithm.
@@ -133,13 +134,82 @@ void generateArray(int *values, int N) {
 }
 \end{lstlisting}
 
+\section{Synchronization}
+For a parallel implementation of the serial algorithm, we need to implement a method to exchange data between each sub-array for every step of the algorithm.
 
+In \textbf{CUDA}, this is achieved by calling a function that will be executed by every thread inside a block, and synchronizing the results after each iteration.
+\begin{lstlisting}[style=cppstyle]
+for (int stage = 2; stage <= N; stage <<= 1) {
+    for (int step = stage >> 1; step > 0; step = step >> 1) {
+        bitonicSortStep<<<blocks, threads_per_block>>>
+                (dev_values, stage, step);
+        cudaDeviceSynchronize();
+    }
+}
+\end{lstlisting}
+
+\section{Exchanging Data Between Partners}
+Data exchanges are done after each thread calculates its \textit{partner}. This is done using the logical operation \textbf{XOR} \textit{(tid \^ step)}. The threads are arranged in a \textit{hypercube-like} structure, where the global \textbf{ID} of each thread is treated as a binary number. The \textbf{XOR} operation between two binary numbers results in a number where the bits are set to $1$ at positions where the two numbers differ. The distance between two nodes in a hypercube is the number of differing bits between their binary representations, known as the \textbf{Hamming Distance}.
+\begin{figure}[!h]
+    \centering
+    \includegraphics[width=0.5\linewidth]{cube.png}
+    \caption{Enter Caption}
+    \label{fig:enter-label}
+\end{figure}
+
+\newpage
 \section{V0}
+This first version of our parallel implementation is very simple. Using the simple concepts mentioned above, a significant improvement compared to a serial implementation is observed. But, while its performance is significantly faster, it still has downsides. Launching kernels multiple times can incur additional overhead, as each launch involves setting up the execution environment on the GPU. Also, multiple synchronizations need to be established, and considering that global synchronizations are generally slow operations, there is a big room for improvement in this implementation.
 
 \section{V1}
+The V1 version of the bitonic sort implementation introduces several key differences compared to the initial version. One of the most notable changes is the introduction of a second kernel, \textbf{localSort}, which is executed alongside the \textbf{bitonicSortStep} kernel we see in the first version (V0). The \textbf{localSort} function is designed to handle the initial sorting of elements within each block by using shared memory for faster data access and reducing the need for frequent global memory calls.
 
+By performing local sorting within each block, the \textbf{localSort} kernel helps to set up the array for the subsequent stages of the bitonic sort.
+
+\begin{lstlisting}[style=cppstyle]
+void bitonicSort(int *values, int N) {
+    int *dev_values;
+    size_t size = N * sizeof(int);
+    int threads_per_block = 1024;
+    int blocks = ((N/2) - 1) / threads_per_block + 1;
+
+    cudaMalloc((void**)&dev_values, size);
+    cudaMemcpy(dev_values, values, size, cudaMemcpyHostToDevice);
+
+    localSort<<<blocks, threads_per_block>>>
+            (dev_values, N, 2, 1);
+
+    for (int stage = 2048; stage <= N; stage <<= 1) {
+        for (int step = stage >> 1; step > 512; step >>= 1) {
+            bitonicSortStep<<<blocks, threads_per_block>>>
+                    (dev_values, (N/2), stage, step);
+            cudaDeviceSynchronize();
+        }
+        localSort<<<blocks, threads_per_block>>>
+                (dev_values, N, stage, 512);
+    }    
+
+    cudaMemcpy(values, dev_values, size, cudaMemcpyDeviceToHost);
+    cudaFree(dev_values);
+}
+\end{lstlisting}
+
+\newpage
 \section{V2}
+The last version of our algorithm improves upon the \textit{V1} version by utilizing local memory instead of global. This is done inside the \textbf{localSort} kernel that we discussed about in the previous version by copying data into shared memory at the beginning, allowing threads within the same block to access data more quickly and efficiently. After the local sorting, the data is written back to global memory, minimizing the overhead associated with frequent global memory accesses.
+\begin{lstlisting}[style=cppstyle]
+__global__ void localSort(int *dev_values, int N, int stage, int step) {
+    extern __shared__ int shared_values[];
+    unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x;
+    unsigned int offset = N >> 1;
+    unsigned int local_tid = threadIdx.x;
 
+    shared_values[local_tid] = dev_values[tid];
+    shared_values[local_tid + min(offset, blockDim.x)] = 
+                                dev_values[tid + offset];
+    __syncthreads();
+}
+\end{lstlisting}
 \chapter{Results}
 As previously mentioned, a serial version of this algorithm has a time complexity of $\boldsymbol{O(n \log^2(n)}$, which is not ideal, as there are faster algorithms. However, a parallel or distributed version, significantly lessens this to $\boldsymbol{O(\log^2(n))}$.
 
@@ -184,27 +254,16 @@ As previously mentioned, a serial version of this algorithm has a time complexit
     \end{tikzpicture}
 \end{center}
 
-This program was executed on the \textbf{Aristotle Cluster} provided by the \textbf{Aristotle University of Thessaloniki}. We tested our program across a range of parameters: $p = [1:7]$ and $q = [20:27]$, where the random array (to be sorted) was populated with integers in the range \textbf{1–999}. We then verified the correctness of the results using \textbf{qsort}. \newpage
+This program was executed on a \textbf{Windows 11} machine with a \textbf{NVIDIA Geforce RTX 3060 12GB} graphics card. We tested our program across a range of \textit{n} values ([20:29]) where the random array (to be sorted) was populated with integers in the range \textbf{1–999}. We then verified the correctness of the results by iterating through the array and comparing each element with the next one.
 
-In the graphic below, we observe the \textit{performance} of the algorithm for different values of $p$ and $q$. It is important to note that for $p=0$, the algorithm effectively becomes serial, with the sorting performed entirely using \textbf{qsort}. This is because the initial sorting step accounts for the entire array.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.85\linewidth]{performance.png}
-    \caption{Performance}
-    \label{fig:enter-label}
-\end{figure}
-
-While the above graphic provides an excellent visualization of performance, it lacks a crucial element: it cannot quantify the effectiveness of the distributed approach compared to the serial one, as the number of elements to be sorted depends on both $q$ and $p$.
+In the graphic below, we can see the results of each version of our implementation compared to \textbf{qsort} for aforementioned $N$ values range. This graphic was created using the \textit{test.py} script that is also available at this projects \textcolor{blue}{\href{https://github.com/stzanetis/BitonicSortCUDA}{GitHub repository}} .
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.85\linewidth]{speed.png}
-    \caption{Speed}
+    \includegraphics[width=1\linewidth]{results.png}
+    \caption{Performance results}
     \label{fig:enter-label}
 \end{figure}
-
-This graphic highlights the number of elements sorted per second of execution. We observe that distributing the load across multiple CPUs achieves nearly a \textbf{twelvefold} improvement in sorting speed compared to the serial implementation.
 
 \chapter{Tools and Sources}
 
@@ -212,7 +271,6 @@ In this project, the following tools where used:
 \begin{enumerate}
     \item The \textbf{C++} programming language.
     \item The \textbf{CUDA} Library.
-    \item The \textbf{Aristotle Cluster} for testing.
     \item \textbf{GitHub} for version control.
     \item \textbf{GitHub Copilot} as an AI assistant.
     \item \textbf{Python} with \textbf{matplotlib} for graphics
